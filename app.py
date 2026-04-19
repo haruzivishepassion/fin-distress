@@ -34,9 +34,8 @@ with tab1:
             else:
                 st.error("Sample file not found")
         
-        if st.button("Run Analysis", type="primary"):
+        if st.button("Load & Analyze", type="primary"):
             if st.session_state.data is not None:
-                st.session_state.data = pd.read_csv("sample_financial_data.csv") if not uploaded_file else st.session_state.data
                 df = st.session_state.data
                 numeric_df = df.select_dtypes(include=[np.number])
                 potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
@@ -179,7 +178,7 @@ with tab2:
 with tab3:
     st.header("Visual Analysis")
     
-    if st.button("Run Analysis", type="primary"):
+    if st.button("Run Visual Analysis", type="primary"):
         if st.session_state.data is not None:
             df = st.session_state.data
             numeric_df = df.select_dtypes(include=[np.number])
