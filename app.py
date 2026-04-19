@@ -216,5 +216,84 @@ with tab4:
             ax4.legend()
             st.pyplot(fig4)
         
+        st.subheader("🎯 Financial Health Verdict")
+        
+        if len(numeric_df.columns) > 0:
+            risk_score = 0
+            
+            if numeric_df.isna().sum().sum() / numeric_df.size > 0.1:
+                risk_score += 30
+            
+            corr_matrix = numeric_df.corr()
+            negative_corr = (corr_matrix < -0.5).sum().sum()
+            if negative_corr > 5:
+                risk_score += 25
+            
+            low_values = (numeric_df < numeric_df.quantile(0.1).values).sum().sum()
+            if low_values > len(numeric_df) * 0.1:
+                risk_score += 20
+            
+            if "year" in df.columns:
+                recent = df[df["year"] == df["year"].max()].select_dtypes(include=[np.number]).mean()
+                past = df[df["year"] == df["year"].min()].select_dtypes(include=[np.number]).mean()
+                decline = ((recent - past) < 0).sum()
+                if decline > len(recent) * 0.5:
+                    risk_score += 25
+            
+            distress_prob = min(100, risk_score)
+            
+            col_v1, col_v2 = st.columns(2)
+            
+            with col_v1:
+                st.metric("Distress Probability", f"{distress_prob}%")
+            
+            with col_v2:
+                if distress_prob >= 60:
+                    st.error("🚨 **FINANCIALLY DISTRESSED**")
+                elif distress_prob >= 40:
+                    st.warning("⚠️ **FINANCIALLY AT RISK**")
+                else:
+                    st.success("✅ **FINANCIALLY HEALTHY**")
+            
+            fig_verdict, ax_verdict = plt.subplots(figsize=(10, 3))
+            colors_verdict = ["#2ecc71" if x < 40 else "#f39c12" if x < 60 else "#e74c3c" for x in [distress_prob]]
+            ax_verdict.barh(["Risk"], [distress_prob], color=colors_verdict[0])
+            ax_verdict.set_xlim(0, 100)
+            ax_verdict.set_xlabel("Distress Probability")
+            st.pyplot(fig_verdict)
+            
+            if distress_prob >= 60:
+                st.error("""
+**IMMEDIATE ACTION REQUIRED:**
+This company shows significant signs of financial distress. 
+Recommended actions:
+1. Conduct detailed financial audit
+2. Negotiate with creditors for payment plans
+3. Consider debt restructuring
+4. Reduce operational costs immediately
+5. Seek professional financial advisor
+                """)
+            elif distress_prob >= 40:
+                st.warning("""
+**CAUTION - AT RISK:**
+This company showswarning signs of financial distress.
+Recommended actions:
+1. Monitor financial metrics monthly
+2. Improve cash flow management
+3. Diversify revenue sources
+4. Build emergency reserves
+5. Review cost structure
+                """)
+            else:
+                st.success("""
+**COMPANY IS FINANCIALLY HEALTHY:**
+This company is in good financial standing.
+Recommended actions:
+1. Continue current financial practices
+2. Consider growth investments
+3. Maintain cash reserves
+4. Explore expansion opportunities
+                """)
+        
         if st.button("Export Report"):
             st.success("Report exported (functionality placeholder)")
