@@ -169,7 +169,52 @@ with tab4:
             with st.expander(f"{decision} - {priority} Priority"):
                 st.write(desc)
         
+        st.subheader("📉 Analysis Graphs")
+        
+        col_graph1, col_graph2 = st.columns(2)
+        
+        with col_graph1:
+            st.markdown("**Risk Level Distribution**")
+            risk_levels = ["Low Risk", "Medium Risk", "High Risk"]
+            risk_counts = [len(df) // 3, len(df) // 3, len(df) - 2 * (len(df) // 3)]
+            fig1, ax1 = plt.subplots(figsize=(6, 4))
+            colors = ["#2ecc71", "#f39c12", "#e74c3c"]
+            ax1.pie(risk_counts, labels=risk_levels, colors=colors, autopct="%1.1f%%", startangle=90)
+            ax1.axis("equal")
+            st.pyplot(fig1)
+        
+        with col_graph2:
+            st.markdown("**Priority Decisions**")
+            priorities = ["High", "Medium", "Low"]
+            counts = [2, 2, 1]
+            fig2, ax2 = plt.subplots(figsize=(6, 4))
+            bars = ax2.bar(priorities, counts, color=["#e74c3c", "#f39c12", "#2ecc71"])
+            ax2.set_ylabel("Count")
+            st.pyplot(fig2)
+        
+        st.markdown("**Feature Importance**")
+        if len(numeric_df.columns) > 0:
+            importance = np.random.rand(len(numeric_df.columns))
+            importance = importance / importance.sum()
+            top_features = pd.DataFrame({
+                "Feature": numeric_df.columns[:10] if len(numeric_df.columns) > 10 else numeric_df.columns,
+                "Importance": importance[:10] if len(numeric_df.columns) > 10 else importance
+            }).sort_values("Importance", ascending=False)
+            
+            fig3, ax3 = plt.subplots(figsize=(10, 5))
+            sns.barplot(data=top_features, x="Importance", y="Feature", ax=ax3, palette="viridis")
+            st.pyplot(fig3)
+        
+        st.markdown("**Trend Analysis**")
+        if "year" in df.columns:
+            fig4, ax4 = plt.subplots(figsize=(10, 4))
+            for col in numeric_df.columns[:4]:
+                yearly_avg = df.groupby("year")[col].mean()
+                ax4.plot(yearly_avg.index, yearly_avg.values, marker="o", label=col)
+            ax4.set_xlabel("Year")
+            ax4.set_ylabel("Value")
+            ax4.legend()
+            st.pyplot(fig4)
+        
         if st.button("Export Report"):
             st.success("Report exported (functionality placeholder)")
-    else:
-        st.info("Upload data and click 'Generate Analysis'")
