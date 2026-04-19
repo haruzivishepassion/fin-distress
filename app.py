@@ -13,10 +13,8 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "data" not in st.session_state:
     st.session_state.data = None
-if "predictions" not in st.session_state:
-    st.session_state.predictions = None
-if "analysis_done" not in st.session_state:
-    st.session_state.analysis_done = False
+if "company_results" not in st.session_state:
+    st.session_state.company_results = None
 
 tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Panel", "💬 Chatbot", "📈 Visual Analysis", "📋 Summary & Decisions"])
 
@@ -26,20 +24,28 @@ with tab1:
     
     if uploaded_file:
         st.session_state.data = pd.read_csv(uploaded_file)
-        st.session_state.analysis_done = False
+        st.session_state.company_results = None
         st.success(f"Loaded {len(st.session_state.data)} rows")
     
     if st.session_state.data is not None:
+        df = st.session_state.data
         st.subheader("Data Preview")
-        st.dataframe(st.session_state.data.head(10), use_container_width=True)
+        st.dataframe(df.head(10), use_container_width=True)
+        
+        potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id", "entity", "org"])]
+        if potential_company_cols:
+            st.subheader("Detected Companies")
+            company_col = st.selectbox("Select Company Column", potential_company_cols)
+            companies = df[company_col].unique()
+            st.write(f"**{len(companies)} companies detected:** {', '.join(map(str, companies[:10]))}{'...' if len(companies) > 10 else ''}")
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Rows", len(st.session_state.data))
+            st.metric("Rows", len(df))
         with col2:
-            st.metric("Columns", len(st.session_state.data.columns))
+            st.metric("Columns", len(df.columns))
         with col3:
-            st.metric("Missing Values", st.session_state.data.isna().sum().sum())
+            st.metric("Missing Values", df.isna().sum().sum())
 
 with tab2:
     st.header("AI Chatbot")
@@ -48,16 +54,47 @@ with tab2:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
     
-    user_input = st.chat_input("Ask about financial distress predictions...")
+    user_input = st.chat_input("Ask about companies, statistics, or predictions...")
     
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         
-        data_info = ""
-        if st.session_state.data is not None:
-            data_info = f"\n\nCurrent data has {len(st.session_state.data)} rows."
+        response = ""
         
-        response = f"I understand: '{user_input}'.{data_info}\n\nI can help with:\n- Analyzing financial data\n- Predicting financial distress\n- Generate summary & recommendations\n- Visualize trends\n\nPlease upload data in the Data Panel first."
+        if st.session_state.company_results is not None:
+            results = st.session_state.company_results
+            user_lower = user_lower = user_input.lower()
+            
+            if any(x in user_lower for x in ["distress", "healthy", "risk", "status"]):
+                response = "## Company Financial Status\n\n"
+                for _, row in results.iterrows():
+                    emoji = "🚨" if row["Status"] == "Distressed" else "⚠️" if row["Status"] == "At Risk" else "✅"
+                    response += f"- **{row['Company']}**: {emoji} {row['Status']} ({row['Distress_Probability']}%)\n"
+            
+            elif any(x in user_lower for x in ["statistics", "stats", "summary", "data", "average", "mean"]):
+                response = "## Summary Statistics by Company\n\n"
+                if st.session_state.data is not None:
+                    df = st.session_state.data
+                    potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
+                    if potential_company_cols:
+                        company_col = potential_company_cols[0]
+                        for company in df[company_col].unique()[:5]:
+                            company_data = df[df[company_col] == company]
+                            numeric_data = company_data.select_dtypes(include=[np.number])
+                            if len(numeric_data.columns) > 0:
+                                stats = numeric_data.describe().loc[["mean", "std", "min", "max"]]
+                                response += f"### {company}\n"
+                                response += f"- Records: {len(company_data)}\n"
+                                response += f"- Mean values: {numeric_data.mean().mean():.2f}\n"
+                                response += f"- Std deviation: {numeric_data.std().mean():.2f}\n\n"
+            
+            else:
+                response = f"I can answer about:\n- Company financial status (distressed/healthy)\n- Summary statistics per company\n- Risk analysis\n\nTry asking: 'What is the status of each company?' or 'Show statistics per company'"
+        else:
+            response = "Please upload data and generate analysis in the Summary tab first. Then I can answer questions about your companies."
+        
+        if not response:
+            response = f"I understand: '{user_input}'.\n\nUpload data and generate analysis to enable company-specific questions."
         
         st.session_state.chat_history.append({"role": "assistant", "content": response})
         st.rerun()
@@ -73,9 +110,28 @@ with tab3:
         df = st.session_state.data
         
         viz_type = st.selectbox("Select Visualization", 
-            ["Correlation Heatmap", "Distribution", "Time Series", "Pair Plot"])
+            ["All Companies Status", "Company Comparison", "Correlation Heatmap", "Distribution"])
         
-        if viz_type == "Correlation Heatmap":
+        if viz_type == "All Companies Status" and st.session_state.company_results is not None:
+            results = st.session_state.company_results
+            fig, ax = plt.subplots(figsize=(10, 5))
+            colors = ["#e74c3c" if s == "Distressed" else "#f39c12" if s == "At Risk" else "#2ecc71" for s in results["Status"]]
+            ax.barh(results["Company"], results["Distress_Probability"], color=colors)
+            ax.set_xlabel("Distress Probability (%)")
+            ax.set_xlim(0, 100)
+            st.pyplot(fig)
+        
+        elif viz_type == "Company Comparison":
+            potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
+            if potential_company_cols:
+                company_col = st.selectbox("Select Company Column", potential_company_cols)
+                numeric_cols = df.select_dtypes(include=[np.number]).columns
+                if len(numeric_cols) > 0:
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    df.groupby(company_col)[numeric_cols[:3]].mean().plot(kind="bar", ax=ax)
+                    st.pyplot(fig)
+        
+        elif viz_type == "Correlation Heatmap":
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             if len(numeric_cols) > 1:
                 fig, ax = plt.subplots(figsize=(10, 8))
@@ -83,30 +139,10 @@ with tab3:
                 st.pyplot(fig)
         
         elif viz_type == "Distribution":
-            col = st.selectbox("Select Column", df.columns)
+            col = st.selectbox("Select Column", df.select_dtypes(include=[np.number]).columns)
             fig, ax = plt.subplots(figsize=(10, 4))
-            if df[col].dtype in [np.number]:
-                sns.histplot(df[col], kde=True, ax=ax)
-            else:
-                df[col].value_counts().plot(kind="bar", ax=ax)
+            sns.histplot(df[col], kde=True, ax=ax)
             st.pyplot(fig)
-        
-        elif viz_type == "Time Series":
-            if "year" in df.columns:
-                fig, ax = plt.subplots(figsize=(10, 4))
-                for col in df.select_dtypes(include=[np.number]).columns[:5]:
-                    df.groupby("year")[col].mean().plot(ax=ax, label=col)
-                ax.legend()
-                st.pyplot(fig)
-            else:
-                st.warning("'year' column not found")
-        
-        elif viz_type == "Pair Plot":
-            cols = st.multiselect("Select Columns", df.select_dtypes(include=[np.number]).columns, 
-                default=list(df.select_dtypes(include=[np.number]).columns[:4]))
-            if cols:
-                fig = sns.pairplot(df[cols])
-                st.pyplot(fig)
     else:
         st.info("Upload data in Data Panel to enable visualizations")
 
@@ -115,185 +151,128 @@ with tab4:
     
     if st.button("Generate Analysis"):
         if st.session_state.data is not None:
-            st.session_state.analysis_done = True
+            df = st.session_state.data
+            numeric_df = df.select_dtypes(include=[np.number])
+            potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
+            
+            if potential_company_cols:
+                company_col = potential_company_cols[0]
+                companies = df[company_col].unique()
+                
+                results = []
+                for company in companies:
+                    company_data = df[df[company_col] == company]
+                    company_numeric = company_data.select_dtypes(include=[np.number])
+                    
+                    risk_score = 0
+                    
+                    if company_numeric.isna().sum().sum() / max(1, company_numeric.size) > 0.1:
+                        risk_score += 30
+                    
+                    if len(company_numeric.columns) > 1:
+                        corr = company_numeric.corr()
+                        negative_corr = (corr < -0.5).sum().sum()
+                        if negative_corr > 3:
+                            risk_score += 25
+                    
+                    low_values = (company_numeric < company_numeric.quantile(0.1).values).sum().sum()
+                    if low_values > max(1, len(company_numeric)) * 0.1:
+                        risk_score += 20
+                    
+                    if "year" in df.columns:
+                        recent = company_data[company_data["year"] == company_data["year"].max()].select_dtypes(include=[np.number]).mean()
+                        past = company_data[company_data["year"] == company_data["year"].min()].select_dtypes(include=[np.number]).mean()
+                        decline = ((recent - past) < 0).sum()
+                        if decline > max(1, len(recent)) * 0.5:
+                            risk_score += 25
+                    
+                    distress_prob = min(100, risk_score)
+                    
+                    if distress_prob >= 60:
+                        status = "Distressed"
+                    elif distress_prob >= 40:
+                        status = "At Risk"
+                    else:
+                        status = "Healthy"
+                    
+                    results.append({
+                        "Company": company,
+                        "Distress_Probability": distress_prob,
+                        "Status": status
+                    })
+                
+                st.session_state.company_results = pd.DataFrame(results)
+            else:
+                st.warning("No company column detected. Please ensure your data has a company name/ID column.")
         else:
             st.warning("Please upload data first")
     
-    if st.session_state.analysis_done and st.session_state.data is not None:
-        df = st.session_state.data
-        numeric_df = df.select_dtypes(include=[np.number])
+    if st.session_state.company_results is not None:
+        results = st.session_state.company_results
         
-        st.subheader("📊 Data Summary")
-        st.write(f"**Total Records:** {len(df)}")
-        st.write(f"**Features:** {len(df.columns)}")
-        st.write(f"**Missing Values:** {df.isna().sum().sum()}")
+        st.subheader("🎯 Financial Health Verdict by Company")
         
-        if len(numeric_df.columns) > 0:
-            st.write("**Key Statistics:**")
-            st.dataframe(numeric_df.describe(), use_container_width=True)
-            
-            corr_matrix = numeric_df.corr()
-            high_corr = []
-            for i in range(len(corr_matrix.columns)):
-                for j in range(i+1, len(corr_matrix.columns)):
-                    if abs(corr_matrix.iloc[i, j]) > 0.7:
-                        high_corr.append((corr_matrix.columns[i], corr_matrix.columns[j], corr_matrix.iloc[i, j]))
+        for _, row in results.iterrows():
+            with st.expander(f"{row['Company']} - {row['Status']}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Distress Probability", f"{row['Distress_Probability']}%")
+                with col2:
+                    if row["Status"] == "Distressed":
+                        st.error("🚨 FINANCIALLY DISTRESSED")
+                    elif row["Status"] == "At Risk":
+                        st.warning("⚠️ FINANCIALLY AT RISK")
+                    else:
+                        st.success("✅ FINANCIALLY HEALTHY")
+        
+        st.subheader("📊 Overall Summary")
+        
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        with col_s1:
+            st.metric("Total Companies", len(results))
+        with col_s2:
+            healthy_count = len(results[results["Status"] == "Healthy"])
+            st.metric("Healthy", healthy_count)
+        with col_s3:
+            at_risk_count = len(results[results["Status"] == "At Risk"])
+            st.metric("At Risk", at_risk_count)
+        with col_s4:
+            distressed_count = len(results[results["Status"] == "Distressed"])
+            st.metric("Distressed", distressed_count)
+        
+        fig_verdict, ax_verdict = plt.subplots(figsize=(10, 4))
+        colors = ["#e74c3c" if s == "Distressed" else "#f39c12" if s == "At Risk" else "#2ecc71" for s in results["Status"]]
+        ax_verdict.barh(results["Company"], results["Distress_Probability"], color=colors)
+        ax_verdict.set_xlim(0, 100)
+        ax_verdict.set_xlabel("Distress Probability (%)")
+        ax_verdict.axvline(x=60, color="red", linestyle="--", label="Distressed Threshold")
+        ax_verdict.axvline(x=40, color="orange", linestyle="--", label="At Risk Threshold")
+        ax_verdict.legend()
+        st.pyplot(fig_verdict)
         
         st.subheader("💡 Recommendations")
         
         cols = st.columns(3)
         with cols[0]:
-            st.info("**Immediate Actions**")
-            st.write("• Review high-risk indicators")
-            st.write("• Verify data completeness")
+            st.info("**For Distressed Companies**")
+            st.write("• Immediate financial audit")
+            st.write("• Negotiate creditor terms")
+            st.write("• Reduce costs drastically")
+            st.write("• Seek professional advisor")
         with cols[1]:
-            st.warning("**Short-term (1-3 months)**")
-            st.write("• Monitor cash flow trends")
-            st.write("• Reduce operational costs")
+            st.warning("**For At-Risk Companies**")
+            st.write("• Monthly monitoring")
+            st.write("• Improve cash flow")
+            st.write("• Diversify revenue")
+            st.write("• Build reserves")
         with cols[2]:
-            st.success("**Long-term (6-12 months)**")
-            st.write("• Diversify revenue streams")
-            st.write("• Build financial reserves")
-        
-        st.subheader("🎯 Key Decisions")
-        
-        decision_list = [
-            ("Review", "Review all financial projections for accuracy", "High"),
-            ("Monitor", "Monitor key distress indicators monthly", "High"),
-            ("Reduce", "Reduce non-essential expenditures", "Medium"),
-            ("Diversify", "Explore new revenue sources", "Medium"),
-            ("Plan", "Develop contingency financing plan", "Low")
-        ]
-        
-        for decision, desc, priority in decision_list:
-            with st.expander(f"{decision} - {priority} Priority"):
-                st.write(desc)
-        
-        st.subheader("📉 Analysis Graphs")
-        
-        col_graph1, col_graph2 = st.columns(2)
-        
-        with col_graph1:
-            st.markdown("**Risk Level Distribution**")
-            risk_levels = ["Low Risk", "Medium Risk", "High Risk"]
-            risk_counts = [len(df) // 3, len(df) // 3, len(df) - 2 * (len(df) // 3)]
-            fig1, ax1 = plt.subplots(figsize=(6, 4))
-            colors = ["#2ecc71", "#f39c12", "#e74c3c"]
-            ax1.pie(risk_counts, labels=risk_levels, colors=colors, autopct="%1.1f%%", startangle=90)
-            ax1.axis("equal")
-            st.pyplot(fig1)
-        
-        with col_graph2:
-            st.markdown("**Priority Decisions**")
-            priorities = ["High", "Medium", "Low"]
-            counts = [2, 2, 1]
-            fig2, ax2 = plt.subplots(figsize=(6, 4))
-            bars = ax2.bar(priorities, counts, color=["#e74c3c", "#f39c12", "#2ecc71"])
-            ax2.set_ylabel("Count")
-            st.pyplot(fig2)
-        
-        st.markdown("**Feature Importance**")
-        if len(numeric_df.columns) > 0:
-            importance = np.random.rand(len(numeric_df.columns))
-            importance = importance / importance.sum()
-            top_features = pd.DataFrame({
-                "Feature": numeric_df.columns[:10] if len(numeric_df.columns) > 10 else numeric_df.columns,
-                "Importance": importance[:10] if len(numeric_df.columns) > 10 else importance
-            }).sort_values("Importance", ascending=False)
-            
-            fig3, ax3 = plt.subplots(figsize=(10, 5))
-            sns.barplot(data=top_features, x="Importance", y="Feature", ax=ax3, palette="viridis")
-            st.pyplot(fig3)
-        
-        st.markdown("**Trend Analysis**")
-        if "year" in df.columns:
-            fig4, ax4 = plt.subplots(figsize=(10, 4))
-            for col in numeric_df.columns[:4]:
-                yearly_avg = df.groupby("year")[col].mean()
-                ax4.plot(yearly_avg.index, yearly_avg.values, marker="o", label=col)
-            ax4.set_xlabel("Year")
-            ax4.set_ylabel("Value")
-            ax4.legend()
-            st.pyplot(fig4)
-        
-        st.subheader("🎯 Financial Health Verdict")
-        
-        if len(numeric_df.columns) > 0:
-            risk_score = 0
-            
-            if numeric_df.isna().sum().sum() / numeric_df.size > 0.1:
-                risk_score += 30
-            
-            corr_matrix = numeric_df.corr()
-            negative_corr = (corr_matrix < -0.5).sum().sum()
-            if negative_corr > 5:
-                risk_score += 25
-            
-            low_values = (numeric_df < numeric_df.quantile(0.1).values).sum().sum()
-            if low_values > len(numeric_df) * 0.1:
-                risk_score += 20
-            
-            if "year" in df.columns:
-                recent = df[df["year"] == df["year"].max()].select_dtypes(include=[np.number]).mean()
-                past = df[df["year"] == df["year"].min()].select_dtypes(include=[np.number]).mean()
-                decline = ((recent - past) < 0).sum()
-                if decline > len(recent) * 0.5:
-                    risk_score += 25
-            
-            distress_prob = min(100, risk_score)
-            
-            col_v1, col_v2 = st.columns(2)
-            
-            with col_v1:
-                st.metric("Distress Probability", f"{distress_prob}%")
-            
-            with col_v2:
-                if distress_prob >= 60:
-                    st.error("🚨 **FINANCIALLY DISTRESSED**")
-                elif distress_prob >= 40:
-                    st.warning("⚠️ **FINANCIALLY AT RISK**")
-                else:
-                    st.success("✅ **FINANCIALLY HEALTHY**")
-            
-            fig_verdict, ax_verdict = plt.subplots(figsize=(10, 3))
-            colors_verdict = ["#2ecc71" if x < 40 else "#f39c12" if x < 60 else "#e74c3c" for x in [distress_prob]]
-            ax_verdict.barh(["Risk"], [distress_prob], color=colors_verdict[0])
-            ax_verdict.set_xlim(0, 100)
-            ax_verdict.set_xlabel("Distress Probability")
-            st.pyplot(fig_verdict)
-            
-            if distress_prob >= 60:
-                st.error("""
-**IMMEDIATE ACTION REQUIRED:**
-This company shows significant signs of financial distress. 
-Recommended actions:
-1. Conduct detailed financial audit
-2. Negotiate with creditors for payment plans
-3. Consider debt restructuring
-4. Reduce operational costs immediately
-5. Seek professional financial advisor
-                """)
-            elif distress_prob >= 40:
-                st.warning("""
-**CAUTION - AT RISK:**
-This company showswarning signs of financial distress.
-Recommended actions:
-1. Monitor financial metrics monthly
-2. Improve cash flow management
-3. Diversify revenue sources
-4. Build emergency reserves
-5. Review cost structure
-                """)
-            else:
-                st.success("""
-**COMPANY IS FINANCIALLY HEALTHY:**
-This company is in good financial standing.
-Recommended actions:
-1. Continue current financial practices
-2. Consider growth investments
-3. Maintain cash reserves
-4. Explore expansion opportunities
-                """)
+            st.success("**For Healthy Companies**")
+            st.write("• Maintain practices")
+            st.write("• Consider growth")
+            st.write("• Monitor trends")
+            st.write("• Explore expansion")
         
         if st.button("Export Report"):
             st.success("Report exported (functionality placeholder)")
+    else:
+        st.info("Upload data and click 'Generate Analysis'. Ensure your data has a company name/ID column.")
