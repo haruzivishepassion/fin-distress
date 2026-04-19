@@ -33,6 +33,67 @@ with tab1:
                 st.success(f"Loaded sample data: {len(st.session_state.data)} rows")
             else:
                 st.error("Sample file not found")
+        
+        if st.button("Run Analysis", type="primary"):
+            if st.session_state.data is not None:
+                st.session_state.data = pd.read_csv("sample_financial_data.csv") if not uploaded_file else st.session_state.data
+                df = st.session_state.data
+                numeric_df = df.select_dtypes(include=[np.number])
+                potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
+                
+                if potential_company_cols:
+                    company_col = potential_company_cols[0]
+                    companies = df[company_col].unique()
+                    
+                    results = []
+                    for company in companies:
+                        company_data = df[df[company_col] == company]
+                        company_numeric = company_data.select_dtypes(include=[np.number])
+                        
+                        risk_score = 0
+                        
+                        if company_numeric.isna().sum().sum() / max(1, company_numeric.size) > 0.1:
+                            risk_score += 30
+                        
+                        if len(company_numeric.columns) > 1:
+                            corr = company_numeric.corr()
+                            negative_corr = (corr < -0.5).sum().sum()
+                            if negative_corr > 3:
+                                risk_score += 25
+                        
+                        if len(company_numeric) > 0:
+                            low_values = (company_numeric < company_numeric.quantile(0.1).values).sum().sum()
+                            if low_values > max(1, len(company_numeric)) * 0.1:
+                                risk_score += 20
+                        
+                        if "year" in df.columns:
+                            recent = company_data[company_data["year"] == company_data["year"].max()].select_dtypes(include=[np.number]).mean()
+                            past = company_data[company_data["year"] == company_data["year"].min()].select_dtypes(include=[np.number]).mean()
+                            decline = ((recent - past) < 0).sum()
+                            if decline > max(1, len(recent)) * 0.5:
+                                risk_score += 25
+                        
+                        distress_prob = min(100, risk_score)
+                        
+                        if distress_prob >= 60:
+                            status = "Distressed"
+                        elif distress_prob >= 40:
+                            status = "At Risk"
+                        else:
+                            status = "Healthy"
+                        
+                        results.append({
+                            "Company": company,
+                            "Distress_Probability": distress_prob,
+                            "Status": status
+                        })
+                    
+                    st.session_state.company_results = pd.DataFrame(results)
+                    st.success("Analysis complete!")
+                else:
+                    st.warning("No company column detected")
+            else:
+                st.warning("Please load data first")
     
     if uploaded_file:
         st.session_state.data = pd.read_csv(uploaded_file)
@@ -117,6 +178,62 @@ with tab2:
 
 with tab3:
     st.header("Visual Analysis")
+    
+    if st.button("Run Analysis", type="primary"):
+        if st.session_state.data is not None:
+            df = st.session_state.data
+            numeric_df = df.select_dtypes(include=[np.number])
+            potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
+            
+            if potential_company_cols:
+                company_col = potential_company_cols[0]
+                companies = df[company_col].unique()
+                
+                results = []
+                for company in companies:
+                    company_data = df[df[company_col] == company]
+                    company_numeric = company_data.select_dtypes(include=[np.number])
+                    
+                    risk_score = 0
+                    
+                    if company_numeric.isna().sum().sum() / max(1, company_numeric.size) > 0.1:
+                        risk_score += 30
+                    
+                    if len(company_numeric.columns) > 1:
+                        corr = company_numeric.corr()
+                        negative_corr = (corr < -0.5).sum().sum()
+                        if negative_corr > 3:
+                            risk_score += 25
+                    
+                    if len(company_numeric) > 0:
+                        low_values = (company_numeric < company_numeric.quantile(0.1).values).sum().sum()
+                        if low_values > max(1, len(company_numeric)) * 0.1:
+                            risk_score += 20
+                    
+                    if "year" in df.columns:
+                        recent = company_data[company_data["year"] == company_data["year"].max()].select_dtypes(include=[np.number]).mean()
+                        past = company_data[company_data["year"] == company_data["year"].min()].select_dtypes(include=[np.number]).mean()
+                        decline = ((recent - past) < 0).sum()
+                        if decline > max(1, len(recent)) * 0.5:
+                            risk_score += 25
+                    
+                    distress_prob = min(100, risk_score)
+                    
+                    if distress_prob >= 60:
+                        status = "Distressed"
+                    elif distress_prob >= 40:
+                        status = "At Risk"
+                    else:
+                        status = "Healthy"
+                    
+                    results.append({
+                        "Company": company,
+                        "Distress_Probability": distress_prob,
+                        "Status": status
+                    })
+                
+                st.session_state.company_results = pd.DataFrame(results)
+                st.success("Analysis complete!")
     
     if st.session_state.data is not None:
         df = st.session_state.data
