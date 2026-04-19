@@ -120,41 +120,79 @@ with tab3:
     
     if st.session_state.data is not None:
         df = st.session_state.data
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
         
         viz_type = st.selectbox("Select Visualization", 
-            ["All Companies Status", "Company Comparison", "Correlation Heatmap", "Distribution"])
+            ["All Companies Status", "Company Comparison", "Correlation Heatmap", "Distribution", "Time Series"])
         
-        if viz_type == "All Companies Status" and st.session_state.company_results is not None:
-            results = st.session_state.company_results
-            fig, ax = plt.subplots(figsize=(10, 5))
-            colors = ["#e74c3c" if s == "Distressed" else "#f39c12" if s == "At Risk" else "#2ecc71" for s in results["Status"]]
-            ax.barh(results["Company"], results["Distress_Probability"], color=colors)
-            ax.set_xlabel("Distress Probability (%)")
-            ax.set_xlim(0, 100)
-            st.pyplot(fig)
+        plt.close('all')
+        
+        if viz_type == "All Companies Status":
+            if st.session_state.company_results is not None:
+                results = st.session_state.company_results
+                fig, ax = plt.subplots(figsize=(10, 5))
+                colors = ["#e74c3c" if s == "Distressed" else "#f39c12" if s == "At Risk" else "#2ecc71" for s in results["Status"]]
+                ax.barh(results["Company"], results["Distress_Probability"], color=colors)
+                ax.set_xlabel("Distress Probability (%)")
+                ax.set_xlim(0, 100)
+                ax.axvline(x=60, color="red", linestyle="--", alpha=0.7, label="Distressed")
+                ax.axvline(x=40, color="orange", linestyle="--", alpha=0.7, label="At Risk")
+                ax.legend()
+                st.pyplot(fig)
+            else:
+                st.warning("Run analysis first to see company status")
         
         elif viz_type == "Company Comparison":
-            potential_company_cols = [c for c in df.columns if any(x in c.lower() for x in ["company", "firm", "name", "id"])]
             if potential_company_cols:
-                company_col = st.selectbox("Select Company Column", potential_company_cols)
-                numeric_cols = df.select_dtypes(include=[np.number]).columns
+                company_col = potential_company_cols[0]
                 if len(numeric_cols) > 0:
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    df.groupby(company_col)[numeric_cols[:3]].mean().plot(kind="bar", ax=ax)
+                    fig, ax = plt.subplots(figsize=(12, 5))
+                    comp_means = df.groupby(company_col)[numeric_cols[:5]].mean()
+                    comp_means.plot(kind="bar", ax=ax)
+                    ax.set_title(f"Financial Metrics by {company_col}")
+                    ax.legend(loc='best', fontsize=8)
+                    plt.xticks(rotation=0)
                     st.pyplot(fig)
         
         elif viz_type == "Correlation Heatmap":
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
             if len(numeric_cols) > 1:
-                fig, ax = plt.subplots(figsize=(10, 8))
-                sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
+                fig, ax = plt.subplots(figsize=(12, 10))
+                corr = df[numeric_cols].corr()
+                sns.heatmap(corr, annot=True, cmap="coolwarm", center=0, ax=ax, fmt=".2f")
+                ax.set_title("Feature Correlation Heatmap")
                 st.pyplot(fig)
+            else:
+                st.warning("Need more numeric columns")
         
         elif viz_type == "Distribution":
-            col = st.selectbox("Select Column", df.select_dtypes(include=[np.number]).columns)
-            fig, ax = plt.subplots(figsize=(10, 4))
-            sns.histplot(df[col], kde=True, ax=ax)
-            st.pyplot(fig)
+            if len(numeric_cols) > 0:
+                col = st.selectbox("Select Column", list(numeric_cols))
+                fig, ax = plt.subplots(figsize=(10, 4))
+                for company in potential_company_cols:
+                    company_data = df
+                sns.histplot(data=df, x=col, hue=potential_company_cols[0] if potential_company_cols else None, kde=True, ax=ax)
+                ax.set_title(f"Distribution of {col}")
+                st.pyplot(fig)
+        
+        elif viz_type == "Time Series":
+            if "year" in df.columns and len(numeric_cols) > 0:
+                company_col = potential_company_cols[0] if potential_company_cols else None
+                metric = st.selectbox("Select Metric", list(numeric_cols))
+                fig, ax = plt.subplots(figsize=(10, 5))
+                if company_col:
+                    for company in df[company_col].unique():
+                        company_df = df[df[company_col] == company]
+                        ax.plot(company_df["year"], company_df[metric], marker="o", label=company)
+                    ax.legend()
+                else:
+                    ax.plot(df["year"], df[metric], marker="o")
+                ax.set_xlabel("Year")
+                ax.set_ylabel(metric)
+                ax.set_title(f"{metric} Over Time")
+                st.pyplot(fig)
+            else:
+                st.warning("Data needs 'year' column for time series")
     else:
         st.info("Upload data in Data Panel to enable visualizations")
 
