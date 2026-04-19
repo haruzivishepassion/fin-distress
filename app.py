@@ -15,8 +15,10 @@ if "data" not in st.session_state:
     st.session_state.data = None
 if "predictions" not in st.session_state:
     st.session_state.predictions = None
+if "analysis_done" not in st.session_state:
+    st.session_state.analysis_done = False
 
-tab1, tab2, tab3 = st.tabs(["📊 Data Panel", "💬 Chatbot", "📈 Visual Analysis"])
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Panel", "💬 Chatbot", "📈 Visual Analysis", "📋 Summary & Decisions"])
 
 with tab1:
     st.header("Upload Financial Data")
@@ -24,6 +26,7 @@ with tab1:
     
     if uploaded_file:
         st.session_state.data = pd.read_csv(uploaded_file)
+        st.session_state.analysis_done = False
         st.success(f"Loaded {len(st.session_state.data)} rows")
     
     if st.session_state.data is not None:
@@ -37,9 +40,6 @@ with tab1:
             st.metric("Columns", len(st.session_state.data.columns))
         with col3:
             st.metric("Missing Values", st.session_state.data.isna().sum().sum())
-        
-        with st.expander("View Full Statistics"):
-            st.write(st.session_state.data.describe())
 
 with tab2:
     st.header("AI Chatbot")
@@ -55,9 +55,9 @@ with tab2:
         
         data_info = ""
         if st.session_state.data is not None:
-            data_info = f"\n\nCurrent data: {len(st.session_state.data)} rows, {list(st.session_state.data.columns[:5])}..."
+            data_info = f"\n\nCurrent data has {len(st.session_state.data)} rows."
         
-        response = f"I understand you asked: '{user_input}'.{data_info}\n\nI can help you with:\n- Analyzing financial data\n- Predicting financial distress\n- Visualize trends and patterns\n\nPlease upload data in the Data Panel first, then ask me to analyze or predict."
+        response = f"I understand: '{user_input}'.{data_info}\n\nI can help with:\n- Analyzing financial data\n- Predicting financial distress\n- Generate summary & recommendations\n- Visualize trends\n\nPlease upload data in the Data Panel first."
         
         st.session_state.chat_history.append({"role": "assistant", "content": response})
         st.rerun()
@@ -81,8 +81,6 @@ with tab3:
                 fig, ax = plt.subplots(figsize=(10, 8))
                 sns.heatmap(df[numeric_cols].corr(), annot=True, cmap="coolwarm", ax=ax)
                 st.pyplot(fig)
-            else:
-                st.warning("Need numeric columns for correlation")
         
         elif viz_type == "Distribution":
             col = st.selectbox("Select Column", df.columns)
@@ -111,3 +109,67 @@ with tab3:
                 st.pyplot(fig)
     else:
         st.info("Upload data in Data Panel to enable visualizations")
+
+with tab4:
+    st.header("Summary, Recommendations & Decisions")
+    
+    if st.button("Generate Analysis"):
+        if st.session_state.data is not None:
+            st.session_state.analysis_done = True
+        else:
+            st.warning("Please upload data first")
+    
+    if st.session_state.analysis_done and st.session_state.data is not None:
+        df = st.session_state.data
+        numeric_df = df.select_dtypes(include=[np.number])
+        
+        st.subheader("📊 Data Summary")
+        st.write(f"**Total Records:** {len(df)}")
+        st.write(f"**Features:** {len(df.columns)}")
+        st.write(f"**Missing Values:** {df.isna().sum().sum()}")
+        
+        if len(numeric_df.columns) > 0:
+            st.write("**Key Statistics:**")
+            st.dataframe(numeric_df.describe(), use_container_width=True)
+            
+            corr_matrix = numeric_df.corr()
+            high_corr = []
+            for i in range(len(corr_matrix.columns)):
+                for j in range(i+1, len(corr_matrix.columns)):
+                    if abs(corr_matrix.iloc[i, j]) > 0.7:
+                        high_corr.append((corr_matrix.columns[i], corr_matrix.columns[j], corr_matrix.iloc[i, j]))
+        
+        st.subheader("💡 Recommendations")
+        
+        cols = st.columns(3)
+        with cols[0]:
+            st.info("**Immediate Actions**")
+            st.write("• Review high-risk indicators")
+            st.write("• Verify data completeness")
+        with cols[1]:
+            st.warning("**Short-term (1-3 months)**")
+            st.write("• Monitor cash flow trends")
+            st.write("• Reduce operational costs")
+        with cols[2]:
+            st.success("**Long-term (6-12 months)**")
+            st.write("• Diversify revenue streams")
+            st.write("• Build financial reserves")
+        
+        st.subheader("🎯 Key Decisions")
+        
+        decision_list = [
+            ("Review", "Review all financial projections for accuracy", "High"),
+            ("Monitor", "Monitor key distress indicators monthly", "High"),
+            ("Reduce", "Reduce non-essential expenditures", "Medium"),
+            ("Diversify", "Explore new revenue sources", "Medium"),
+            ("Plan", "Develop contingency financing plan", "Low")
+        ]
+        
+        for decision, desc, priority in decision_list:
+            with st.expander(f"{decision} - {priority} Priority"):
+                st.write(desc)
+        
+        if st.button("Export Report"):
+            st.success("Report exported (functionality placeholder)")
+    else:
+        st.info("Upload data and click 'Generate Analysis'")
