@@ -20,7 +20,19 @@ tab1, tab2, tab3, tab4 = st.tabs(["📊 Data Panel", "💬 Chatbot", "📈 Visua
 
 with tab1:
     st.header("Upload Financial Data")
-    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+    col_upload1, col_upload2 = st.columns([3, 1])
+    with col_upload1:
+        uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+    with col_upload2:
+        st.write("")
+        st.write("")
+        if st.button("Load Sample Data"):
+            if os.path.exists("sample_financial_data.csv"):
+                st.session_state.data = pd.read_csv("sample_financial_data.csv")
+                st.session_state.company_results = None
+                st.success(f"Loaded sample data: {len(st.session_state.data)} rows")
+            else:
+                st.error("Sample file not found")
     
     if uploaded_file:
         st.session_state.data = pd.read_csv(uploaded_file)
